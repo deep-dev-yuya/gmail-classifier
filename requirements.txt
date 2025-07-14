@@ -1,0 +1,36 @@
+# Flask関連
+Flask==2.3.3
+Flask-CORS==4.0.0
+
+# 機械学習
+scikit-learn==1.3.0
+pandas==2.0.3
+numpy==1.24.3
+
+# 自然言語処理
+nltk==3.8.1
+
+# API関連
+requests==2.31.0
+
+# データ処理
+python-dotenv==1.0.0
+
+# Google API
+google-auth==2.23.3
+google-auth-oauthlib==1.0.0
+google-auth-httplib2==0.1.1
+google-api-python-client==2.100.0
+
+# LINE API
+line-bot-sdk==3.5.0
+
+# ユーティリティ
+python-dateutil==2.8.2
+pytz==2023.3
+
+# 開発・テスト用
+pytest==7.4.2
+pytest-flask==1.2.0
+black==23.7.0
+flake8==6.0.0

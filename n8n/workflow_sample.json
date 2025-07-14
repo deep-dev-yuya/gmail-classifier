@@ -1,0 +1,220 @@
+{
+  "name": "Gmail分類PoC ワークフロー",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {},
+        "options": {}
+      },
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// HTMLタグ除去とテキスト正規化\nconst items = $input.all();\n\nreturn items.map(item => {\n  const data = item.json;\n  \n  // HTMLタグ除去\n  const cleanBody = data.textPlain || data.textHtml?.replace(/<[^>]*>/g, '') || '';\n  \n  // 基本的な正規化\n  const normalizedBody = cleanBody\n    .replace(/\\r\\n/g, '\\n')\n    .replace(/\\n+/g, ' ')\n    .trim();\n  \n  return {\n    json: {\n      ...data,\n      subject: data.subject || '',\n      body: normalizedBody,\n      processedAt: new Date().toISOString()\n    }\n  };\n});"
+      },
+      "name": "Email Preprocessing",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5000/api/enrich-context",
+        "options": {
+          "bodyContentType": "json",
+          "headers": {
+            "item": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"subject\": \"{{ $json.subject }}\",\n  \"body\": \"{{ $json.body }}\"\n}"
+      },
+      "name": "MCP Context Enricher",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5000/api/classify",
+        "options": {
+          "bodyContentType": "json",
+          "headers": {
+            "item": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"subject\": \"{{ $json.subject }}\",\n  \"body\": \"{{ $json.body }}\"\n}"
+      },
+      "name": "AI Classification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 1,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "{{ $json.classification }}",
+              "operation": "equal",
+              "value2": "重要"
+            }
+          ]
+        }
+      },
+      "name": "Switch分類",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// LINE通知メッセージ作成\nconst items = $input.all();\n\nreturn items.map(item => {\n  const classification = $('AI Classification').item.json.classification;\n  const confidence = $('AI Classification').item.json.confidence;\n  const context = $('MCP Context Enricher').item.json.enriched_context;\n  const subject = item.json.subject;\n  \n  const message = `🚨 重要メール検出\\n` +\n    `分類: ${classification}\\n` +\n    `信頼度: ${(confidence * 100).toFixed(1)}%\\n` +\n    `件名: ${subject}\\n` +\n    `文脈: ${context}`;\n  \n  return {\n    json: {\n      message: message,\n      classification: classification\n    }\n  };\n});"
+      },
+      "name": "LINE Message Creation",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1340, 200]
+    },
+    {
+      "parameters": {
+        "messageType": "text",
+        "text": "={{ $json.message }}",
+        "additionalFields": {}
+      },
+      "name": "LINE通知",
+      "type": "n8n-nodes-base.line",
+      "typeVersion": 1,
+      "position": [1560, 200]
+    },
+    {
+      "parameters": {
+        "sheetId": "YOUR_SHEET_ID",
+        "range": "A:F",
+        "options": {
+          "valueInputMode": "USER_ENTERED"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ new Date().toISOString() }}",
+            "subject": "={{ $json.subject }}",
+            "classification": "={{ $('AI Classification').item.json.classification }}",
+            "confidence": "={{ $('AI Classification').item.json.confidence }}",
+            "context": "={{ $('MCP Context Enricher').item.json.enriched_context }}",
+            "priority": "={{ $('MCP Context Enricher').item.json.priority_level }}"
+          }
+        }
+      },
+      "name": "Google Sheetsログ保存",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 1,
+      "position": [1340, 400]
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Email Preprocessing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Preprocessing": {
+      "main": [
+        [
+          {
+            "node": "MCP Context Enricher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "MCP Context Enricher": {
+      "main": [
+        [
+          {
+            "node": "AI Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Classification": {
+      "main": [
+        [
+          {
+            "node": "Switch分類",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch分類": {
+      "main": [
+        [
+          {
+            "node": "LINE Message Creation",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Google Sheetsログ保存",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheetsログ保存",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "LINE Message Creation": {
+      "main": [
+        [
+          {
+            "node": "LINE通知",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {},
+  "id": "gmail-classifier-workflow"
+}

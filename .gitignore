@@ -1,0 +1,163 @@
+# Gmail AI Classifier - .gitignore
+# Generated based on CLAUDE.md security guidelines
+
+# ============================================
+# 🛡️ セキュリティ & 秘匿情報 (CLAUDE.md指針)
+# ============================================
+
+# 環境変数・設定ファイル
+.env
+.env.*
+!.env.example
+config/local_*.py
+
+# API キー・認証情報
+*.key
+*.pem
+*.p12
+credentials.json
+token.json
+service_account.json
+
+# ============================================
+# 🤖 機械学習関連
+# ============================================
+
+# 学習済みモデル
+*.pkl
+*.joblib
+*.model
+models/*.pkl
+models/*.joblib
+models/trained/
+
+# 学習用データ（生データ）
+data/raw/
+data/sensitive/
+data/*.csv
+data/*.parquet
+!data/sample/
+!data/train_data.csv
+
+# MLflow / 実験管理
+mlruns/
+.mlflow/
+
+# ============================================
+# 📝 ログ・一時ファイル
+# ============================================
+
+# ログファイル
+logs/
+*.log
+n8n/logs/
+app.log
+error.log
+
+# 一時ファイル・キャッシュ
+*.tmp
+*.cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ============================================
+# 🐍 Python環境
+# ============================================
+
+# 仮想環境
+.venv/
+venv/
+env/
+ENV/
+
+# pip
+pip-log.txt
+pip-delete-this-directory.txt
+
+# pytest
+.pytest_cache/
+.coverage
+htmlcov/
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# ============================================
+# 🐳 Docker関連
+# ============================================
+
+# Docker volumes
+docker/volumes/
+docker-compose.override.yml
+
+# n8n永続化データ
+n8n/data/
+n8n/database.sqlite
+n8n/config
+
+# ============================================
+# 📁 IDE・エディタ
+# ============================================
+
+# VS Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+
+# PyCharm
+.idea/
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# ============================================
+# 🍎 macOS固有
+# ============================================
+
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# ============================================
+# 📊 分析・レポート
+# ============================================
+
+# バックアップファイル
+backup/
+*.backup
+*.bak
+
+# レポート出力
+reports/
+outputs/
+
+# ============================================
+# 🔧 その他
+# ============================================
+
+# SQLite
+*.sqlite
+*.sqlite3
+*.db
+
+# 一時的なテストファイル
+test_output/
+temp/
+tmp/
+
+# パッケージ関連
+dist/
+build/
+*.egg-info/
+
+# 圧縮ファイル
+*.zip
+*.tar.gz
+*.rar
