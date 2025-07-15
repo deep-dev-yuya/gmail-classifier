@@ -1,6 +1,10 @@
-# Gmail分類PoC プロジェクト
+# gmail-classifier
 
-Gmailから受信したメールを機械学習で自動分類し、n8n + Flask + MCP を使用して自動処理するプロジェクトです。
+_Automatically classify Gmail messages using AI and automate actions via n8n + Flask + MCP (Proof of Concept)._
+
+Gmailから受信したメールを機械学習で自動分類し、n8n + Flask + MCP を使用して自動処理するPoCプロジェクトです。
+
+---
 
 ## 🎯 プロジェクト概要
 
@@ -16,72 +20,70 @@ Gmailから受信したメールを機械学習で自動分類し、n8n + Flask 
 - **Workflow**: n8n (Docker)
 - **APIs**: Gmail API, LINE Messaging API, Google Sheets API
 
+---
+
 ## 📁 プロジェクト構造
 
 ```
 gmail-classifier/
 ├── app/                    # Flask アプリケーション
-│   ├── __init__.py        # アプリファクトリー
-│   ├── classifier.py      # メール分類API
-│   └── context_enricher.py # MCP文脈補完API
 ├── models/                 # 機械学習モデル
-│   ├── train_model.py     # モデル学習スクリプト
-│   └── model.pkl          # 学習済みモデル（生成後）
-├── n8n/                   # n8nワークフロー設定
-│   ├── workflow_sample.json # サンプルワークフロー
-│   └── setup_guide.md     # セットアップガイド
-├── data/                  # 学習データ
-├── config/               # 設定ファイル
-├── tests/               # テストファイル
-├── docs/               # ドキュメント
-├── config.py          # Flask設定
-├── requirements.txt   # Python依存関係
-├── .env.example      # 環境変数サンプル
-└── run.py           # メイン実行ファイル
+├── n8n/                    # n8nワークフロー設定
+├── data/                   # 学習データ
+├── config/                 # 設定ファイル
+├── tests/                  # テストファイル
+├── docs/                   # ドキュメント
+├── config.py               # Flask設定
+├── requirements.txt        # Python依存関係
+├── .env.example            # 環境変数サンプル
+└── run.py                  # メイン実行ファイル
 ```
 
+---
 ## 🚀 セットアップ手順
 
 ### 1. 環境準備
-```bash
-# プロジェクトディレクトリに移動
-cd /Users/hasegawayuya/Projects/dev-projects/gmail-classifier
 
-# 仮想環境作成
+```bash
+git clone https://github.com/your-org/gmail-classifier.git
+cd gmail-classifier
+
 python3 -m venv venv
 source venv/bin/activate
 
-# 依存関係インストール
 pip install -r requirements.txt
 ```
 
 ### 2. 環境変数設定
-```bash
-# .env ファイル作成
-cp .env.example .env
 
-# 必要なAPIキーを設定
-# - LINE_CHANNEL_ACCESS_TOKEN
-# - GOOGLE_SHEETS_CREDENTIALS_FILE
-# - GOOGLE_SHEETS_SPREADSHEET_ID
+```bash
+cp .env.example .env
+# .envファイルをエディタで開き、必要なAPIキーや設定値を入力してください
+# 例:
+# LINE_CHANNEL_ACCESS_TOKEN=your_line_token
+# GOOGLE_SHEETS_CREDENTIALS_FILE=credentials.json
+# GOOGLE_SHEETS_SPREADSHEET_ID=your_spreadsheet_id
 ```
 
 ### 3. モデル学習
+
 ```bash
-# 学習データディレクトリで実行
 cd models
 python train_model.py
 ```
 
 ### 4. Flask API起動
+
 ```bash
-# プロジェクトルートで実行
+cd ..
 python run.py
 ```
 
 ### 5. n8nワークフロー設定
-`n8n/setup_guide.md` を参照してワークフロー設定を行ってください。
 
+`n8n/setup_guide.md` を参照してください。
+
+---
 ## 📊 API エンドポイント
 
 ### メール分類 API
@@ -132,30 +134,13 @@ curl -X POST http://localhost:5000/api/classify \
 curl http://localhost:5000/health
 ```
 
-## 📝 開発メモ
+## 📝 注意事項
 
-### 分類ラベル
-- **支払い関係**: 請求書、支払い通知など
-- **通知**: 会議案内、一般的なお知らせ
-- **重要**: 緊急連絡、システム障害など
+- 本プロジェクトはPoC（概念実証）用途です。本番運用前に十分なテストとセキュリティ対策を行ってください。
+- APIキーや認証情報は絶対に公開しないでください。
+- 個人情報・機密情報の取り扱いにご注意ください。
 
-### モデル改善
-- 学習データの追加・改善
-- 特徴量エンジニアリング
-- ハイパーパラメータ調整
-
-## 🔍 トラブルシューティング
-
-### よくある問題
-1. **モデルファイルが見つからない**: `models/train_model.py` を実行
-2. **API接続エラー**: Flask サーバーの起動状態確認
-3. **認証エラー**: 各種API キーの設定確認
-
-### ログ確認
-```bash
-# アプリケーションログ
-tail -f logs/app.log
-```
+---
 
 ## 📚 参考資料
 
@@ -163,18 +148,16 @@ tail -f logs/app.log
 - [Flask公式ドキュメント](https://flask.palletsprojects.com/)
 - [scikit-learn公式ドキュメント](https://scikit-learn.org/)
 
-## 🤝 開発・拡張
+---
 
-### 今後の改善案
-- [ ] 信頼度の低い分類の人間確認フロー
-- [ ] モデルの自動再学習機能
-- [ ] 多言語対応
-- [ ] リアルタイム分類精度モニタリング
+## 📝 ライセンス
+
+このリポジトリのライセンスは `LICENSE` ファイルをご確認ください。（未設定の場合は「ライセンス未定」と記載）
 
 ---
 
-**注意**: 本プロジェクトはPoC（概念実証）用途です。本格運用前に十分なテストと設定見直しを行ってください。
+## 🤝 コントリビューション
 
-# gmail-classifier
-Gmail受信メールをAIで分類するPoCシステムです。n8nで取得したメールをFlask APIを通じて機械学習モデルで解析し、「重要」「スパム」「支払い」などのラベルを自動で付与します。その結果に応じて、LINE通知やログ記録などの処理が実行されます。
+バグ報告・改善提案・プルリクエスト歓迎します！
 
+---
