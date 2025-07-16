@@ -5,6 +5,7 @@ Gmail分類API Blueprint
 
 from flask import Blueprint, request, jsonify
 import pickle
+import joblib
 import os
 import pandas as pd
 import re
@@ -14,9 +15,8 @@ from sklearn.svm import LinearSVC
 
 classifier_bp = Blueprint('classifier', __name__)
 
-# グローバル変数でモデルをキャッシュ
-_model = None
-_vectorizer = None
+# グローバル変数でPipelineモデルをキャッシュ
+_pipeline = None
 
 def create_paypay_specialized_features(text: str) -> str:
     """
@@ -128,20 +128,30 @@ def create_paypay_specialized_features(text: str) -> str:
     
     return ' '.join(features)
 
-def load_model():
-    """機械学習モデルの読み込み"""
-    global _model, _vectorizer
+def load_pipeline():
+    """Pipeline化されたモデルの読み込み"""
+    global _pipeline
     
-    if _model is None or _vectorizer is None:
-        model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'model.pkl')
+    if _pipeline is None:
+        # Pipeline化されたモデルを優先的に読み込み
+        pipeline_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'paypay_specialized_v1.pkl')
+        old_model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'model.pkl')
         
-        if os.path.exists(model_path):
-            with open(model_path, 'rb') as f:
-                _vectorizer, _model = pickle.load(f)
+        if os.path.exists(pipeline_path):
+            # Pipeline化されたモデルを読み込み
+            loaded_data = joblib.load(pipeline_path)
+            _pipeline = loaded_data['pipeline']
+        elif os.path.exists(old_model_path):
+            # 旧形式のモデルを読み込み（fallback）
+            with open(old_model_path, 'rb') as f:
+                vectorizer, model = pickle.load(f)
+            # 旧形式をPipelineに変換
+            from sklearn.pipeline import make_pipeline
+            _pipeline = make_pipeline(vectorizer, model)
         else:
             # デモ用の簡易分類器
-            _vectorizer = TfidfVectorizer(max_features=1000)
-            _model = LinearSVC()
+            vectorizer = TfidfVectorizer(max_features=1000)
+            model = LinearSVC()
             
             # ダミーデータで初期化
             dummy_texts = [
@@ -151,10 +161,13 @@ def load_model():
             ]
             dummy_labels = ["支払い関係", "通知", "重要"]
             
-            X = _vectorizer.fit_transform(dummy_texts)
-            _model.fit(X, dummy_labels)
+            X = vectorizer.fit_transform(dummy_texts)
+            model.fit(X, dummy_labels)
+            
+            from sklearn.pipeline import make_pipeline
+            _pipeline = make_pipeline(vectorizer, model)
     
-    return _vectorizer, _model
+    return _pipeline
 
 @classifier_bp.route('/classify', methods=['POST'])
 def classify_email():
@@ -171,21 +184,20 @@ def classify_email():
         subject = data.get('subject', '')
         body = data.get('body', '')
         
-        # モデル読み込み
-        vectorizer, model = load_model()
+        # Pipeline読み込み
+        pipeline = load_pipeline()
         
         # テキスト結合とPayPay特化特徴量エンジニアリング
         text = f"{subject} {body}"
         enhanced_text = create_paypay_specialized_features(text)
         
-        # 予測実行
-        X = vectorizer.transform([enhanced_text])
-        prediction = model.predict(X)[0]
+        # 予測実行（Pipeline）
+        prediction = pipeline.predict([enhanced_text])[0]
         
-        # 信頼度計算（SVMの場合）
+        # 信頼度計算（CalibratedClassifierCVで確率化）
         try:
-            confidence_scores = model.decision_function(X)[0]
-            confidence = float(max(confidence_scores)) if hasattr(confidence_scores, '__iter__') else float(confidence_scores)
+            probabilities = pipeline.predict_proba([enhanced_text])[0]
+            confidence = float(max(probabilities))
         except:
             confidence = 0.8  # デフォルト値
         
@@ -208,16 +220,39 @@ def classify_email():
 def model_status():
     """モデルの状態確認"""
     try:
-        model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'model.pkl')
-        model_exists = os.path.exists(model_path)
+        pipeline_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'paypay_specialized_v1.pkl')
+        old_model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'model.pkl')
         
         return jsonify({
-            "model_file_exists": model_exists,
-            "model_path": model_path,
-            "model_loaded": _model is not None
+            "pipeline_file_exists": os.path.exists(pipeline_path),
+            "pipeline_path": pipeline_path,
+            "old_model_file_exists": os.path.exists(old_model_path),
+            "old_model_path": old_model_path,
+            "pipeline_loaded": _pipeline is not None
         })
         
     except Exception as e:
         return jsonify({
             "error": f"Status check failed: {str(e)}"
+        }), 500
+
+@classifier_bp.route('/model/reload', methods=['POST'])
+def reload_model():
+    """モデルの再読み込み"""
+    try:
+        global _pipeline
+        _pipeline = None  # キャッシュクリア
+        
+        # 新しいPipelineを読み込み
+        pipeline = load_pipeline()
+        
+        return jsonify({
+            "status": "success",
+            "message": "Pipeline model reloaded successfully",
+            "pipeline_loaded": _pipeline is not None
+        })
+        
+    except Exception as e:
+        return jsonify({
+            "error": f"Reload failed: {str(e)}"
         }), 500
