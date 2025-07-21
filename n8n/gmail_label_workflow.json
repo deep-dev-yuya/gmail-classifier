@@ -1,0 +1,337 @@
+{
+  "name": "Gmail自動ラベル分類ワークフロー",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {},
+        "options": {}
+      },
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "id": "gmail-trigger"
+    },
+    {
+      "parameters": {
+        "functionCode": "// HTMLタグ除去とテキスト正規化\nconst items = $input.all();\n\nreturn items.map(item => {\n  const data = item.json;\n  \n  // HTMLタグ除去\n  const cleanBody = data.textPlain || data.textHtml?.replace(/<[^>]*>/g, '') || '';\n  \n  // 基本的な正規化\n  const normalizedBody = cleanBody\n    .replace(/\\r\\n/g, '\\n')\n    .replace(/\\n+/g, ' ')\n    .trim();\n  \n  return {\n    json: {\n      ...data,\n      subject: data.subject || '',\n      body: normalizedBody,\n      messageId: data.id,  // Gmail messageId を保持\n      processedAt: new Date().toISOString()\n    }\n  };\n});"
+      },
+      "name": "Email Preprocessing",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "id": "email-preprocessing"
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5002/api/enrich-context",
+        "options": {
+          "bodyContentType": "json",
+          "headers": {
+            "item": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"subject\": \"{{ $json.subject }}\",\n  \"body\": \"{{ $json.body }}\"\n}"
+      },
+      "name": "Context Enricher",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [680, 300],
+      "id": "context-enricher"
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5002/api/classify",
+        "options": {
+          "bodyContentType": "json",
+          "headers": {
+            "item": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"subject\": \"{{ $json.subject }}\",\n  \"body\": \"{{ $json.body }}\"\n}"
+      },
+      "name": "AI Classification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [900, 300],
+      "id": "ai-classification"
+    },
+    {
+      "parameters": {
+        "functionCode": "// 分類結果とラベルのマッピング\nconst items = $input.all();\n\nreturn items.map(item => {\n  const classification = $('AI Classification').item.json.classification;\n  const confidence = $('AI Classification').item.json.confidence;\n  const context = $('Context Enricher').item.json.enriched_context;\n  const messageId = $('Email Preprocessing').item.json.messageId;\n  \n  // 分類結果をGmailラベルにマッピング\n  const labelMapping = {\n    '支払い関係': 'AI-Payment',\n    '重要': 'AI-Important', \n    'プロモーション': 'AI-Promotion',\n    '仕事・学習': 'AI-Work-Study'\n  };\n  \n  const gmailLabel = labelMapping[classification] || 'AI-Unclassified';\n  \n  // 信頼度が低い場合の処理\n  const isLowConfidence = confidence < 0.5;\n  const finalLabel = isLowConfidence ? 'AI-NeedsReview' : gmailLabel;\n  \n  return {\n    json: {\n      ...item.json,\n      messageId: messageId,\n      classification: classification,\n      confidence: confidence,\n      gmailLabel: finalLabel,\n      enrichedContext: context,\n      isLowConfidence: isLowConfidence,\n      processTime: new Date().toISOString()\n    }\n  };\n});"
+      },
+      "name": "Label Mapping",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1120, 300],
+      "id": "label-mapping"
+    },
+    {
+      "parameters": {
+        "operation": "addLabels",
+        "messageId": "={{ $json.messageId }}",
+        "labelIds": "={{ $json.gmailLabel }}",
+        "options": {
+          "createLabels": true
+        }
+      },
+      "name": "Gmail Add Label",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "id": "gmail-add-label"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.classification }}",
+              "rightValue": "支払い関係",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "leftValue": "={{ $json.classification }}",
+              "rightValue": "重要",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "leftValue": "={{ $json.classification }}",
+              "rightValue": "プロモーション",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "leftValue": "={{ $json.classification }}",
+              "rightValue": "仕事・学習",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "leftValue": "={{ $json.isLowConfidence }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "combineOperation": "any"
+      },
+      "name": "Classification Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1560, 300],
+      "id": "classification-switch"
+    },
+    {
+      "parameters": {
+        "sheetId": "YOUR_GOOGLE_SHEET_ID",
+        "range": "ログ!A:H",
+        "options": {
+          "valueInputMode": "USER_ENTERED"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.processTime }}",
+            "messageId": "={{ $json.messageId }}",
+            "subject": "={{ $json.subject }}",
+            "classification": "={{ $json.classification }}",
+            "confidence": "={{ Number($json.confidence).toFixed(3) }}",
+            "gmailLabel": "={{ $json.gmailLabel }}",
+            "enrichedContext": "={{ $json.enrichedContext }}",
+            "status": "={{ $json.isLowConfidence ? '要確認' : '完了' }}"
+          }
+        }
+      },
+      "name": "Google Sheets Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1780, 300],
+      "id": "google-sheets-log"
+    },
+    {
+      "parameters": {
+        "sheetId": "YOUR_GOOGLE_SHEET_ID",
+        "range": "再学習候補!A:F",
+        "options": {
+          "valueInputMode": "USER_ENTERED"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.processTime }}",
+            "messageId": "={{ $json.messageId }}",
+            "subject": "={{ $json.subject }}",
+            "predictedClass": "={{ $json.classification }}",
+            "confidence": "={{ Number($json.confidence).toFixed(3) }}",
+            "reason": "信頼度不足"
+          }
+        }
+      },
+      "name": "Low Confidence Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [1780, 500],
+      "id": "low-confidence-log"
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Email Preprocessing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Preprocessing": {
+      "main": [
+        [
+          {
+            "node": "Context Enricher",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context Enricher": {
+      "main": [
+        [
+          {
+            "node": "AI Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Classification": {
+      "main": [
+        [
+          {
+            "node": "Label Mapping",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label Mapping": {
+      "main": [
+        [
+          {
+            "node": "Gmail Add Label",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Add Label": {
+      "main": [
+        [
+          {
+            "node": "Classification Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classification Switch": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Sheets Log",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Low Confidence Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "gmail-label-classifier-workflow",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "versionId": "b13e421b-cf7a-4b14-86f2-1e58dcb0d8e8"
+}

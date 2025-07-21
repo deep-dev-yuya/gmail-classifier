@@ -1,0 +1,15 @@
+This is a test file created to test DXT file operations.
+Created on: 2025-07-18
+Purpose: Testing hybrid Docker MCP + DXT configuration
+Project: Gmail Classifier AI
+
+Features to test:
+1. File reading via Docker MCP
+2. File writing via Docker MCP  
+3. Directory listing via Docker MCP
+4. Compare with DXT functionality (when available)
+
+Expected behavior:
+- Docker MCP should provide full file access
+- DXT should provide simplified file access (when installed)
+- Both should work simultaneously in hybrid configuration

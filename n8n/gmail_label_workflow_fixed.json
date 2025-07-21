@@ -1,0 +1,342 @@
+{
+  "name": "Gmail自動ラベル分類ワークフロー（修正版）",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "simple": false,
+        "filters": {},
+        "options": {}
+      },
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmailTrigger",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "id": "gmail-trigger"
+    },
+    {
+      "parameters": {
+        "functionCode": "// HTMLタグ除去とテキスト正規化\nconst items = $input.all();\n\nreturn items.map(item => {\n  const data = item.json;\n  \n  // HTMLタグ除去\n  const cleanBody = data.textPlain || data.textHtml?.replace(/<[^>]*>/g, '') || '';\n  \n  // 基本的な正規化\n  const normalizedBody = cleanBody\n    .replace(/\\r\\n/g, '\\n')\n    .replace(/\\n+/g, ' ')\n    .trim();\n  \n  return {\n    json: {\n      ...data,\n      subject: data.subject || '',\n      body: normalizedBody,\n      messageId: data.id,  // Gmail messageId を保持\n      processedAt: new Date().toISOString()\n    }\n  };\n});"
+      },
+      "name": "Email Preprocessing",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300],
+      "id": "email-preprocessing"
+    },
+    {
+      "parameters": {
+        "url": "http://localhost:5002/api/classify",
+        "options": {
+          "bodyContentType": "json",
+          "headers": {
+            "item": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"subject\": \"{{ $json.subject }}\",\n  \"body\": \"{{ $json.body }}\"\n}"
+      },
+      "name": "AI Classification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [680, 300],
+      "id": "ai-classification"
+    },
+    {
+      "parameters": {
+        "functionCode": "// 分類結果と英語ラベルのマッピング\nconst items = $input.all();\n\nreturn items.map(item => {\n  const classification = $('AI Classification').item.json.classification;\n  const confidence = $('AI Classification').item.json.confidence;\n  const context = $('AI Classification').item.json.context_analysis?.enriched_context || '';\n  const messageId = $('Email Preprocessing').item.json.messageId;\n  \n  // 分類結果を英語ラベルにマッピング（日本語回避）\n  const labelMapping = {\n    '支払い関係': 'Payment',\n    '重要': 'Important', \n    'プロモーション': 'Promotion',\n    '仕事・学習': 'WorkStudy'\n  };\n  \n  const englishLabel = labelMapping[classification] || 'Unclassified';\n  \n  // 信頼度が低い場合の処理\n  const isLowConfidence = confidence < 0.5;\n  const finalLabel = isLowConfidence ? 'NeedsReview' : englishLabel;\n  \n  return {\n    json: {\n      ...item.json,\n      messageId: messageId,\n      classification: classification,\n      confidence: confidence,\n      englishLabel: finalLabel,\n      enrichedContext: context,\n      isLowConfidence: isLowConfidence,\n      processTime: new Date().toISOString()\n    }\n  };\n});"
+      },
+      "name": "Label Mapping",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [900, 300],
+      "id": "label-mapping"
+    },
+    {
+      "parameters": {
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/labels",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleApi",
+        "options": {
+          "headers": {
+            "item": [
+              {
+                "name": "Accept",
+                "value": "application/json"
+              }
+            ]
+          }
+        }
+      },
+      "name": "Get Gmail Labels",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1120, 300],
+      "id": "get-gmail-labels"
+    },
+    {
+      "parameters": {
+        "functionCode": "// ラベル存在確認とID取得\nconst items = $input.all();\n\nreturn items.map(item => {\n  const targetLabel = $('Label Mapping').item.json.englishLabel;\n  const labelsList = $('Get Gmail Labels').item.json.labels || [];\n  \n  // ラベル名でIDを検索\n  const existingLabel = labelsList.find(label => label.name === targetLabel);\n  \n  let labelId = null;\n  let needsCreation = false;\n  \n  if (existingLabel) {\n    labelId = existingLabel.id;\n  } else {\n    needsCreation = true;\n  }\n  \n  return {\n    json: {\n      ...item.json,\n      targetLabel: targetLabel,\n      labelId: labelId,\n      needsCreation: needsCreation\n    }\n  };\n});"
+      },
+      "name": "Check Label Exists",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [1340, 300],
+      "id": "check-label-exists"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.needsCreation }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ]
+        },
+        "combineOperation": "any"
+      },
+      "name": "Needs Label Creation",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [1560, 300],
+      "id": "needs-label-creation"
+    },
+    {
+      "parameters": {
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/labels",
+        "method": "POST",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleApi",
+        "options": {
+          "bodyContentType": "json",
+          "headers": {
+            "item": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"name\": \"{{ $json.targetLabel }}\",\n  \"messageListVisibility\": \"show\",\n  \"labelListVisibility\": \"labelShow\"\n}"
+      },
+      "name": "Create Label",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1780, 200],
+      "id": "create-label"
+    },
+    {
+      "parameters": {
+        "functionCode": "// 作成されたラベルIDを設定\nconst items = $input.all();\n\nreturn items.map(item => {\n  let labelId;\n  \n  // ラベルが作成された場合は新しいID、既存の場合は元のIDを使用\n  if ($('Create Label').item?.json?.id) {\n    labelId = $('Create Label').item.json.id;\n  } else {\n    labelId = $('Check Label Exists').item.json.labelId;\n  }\n  \n  return {\n    json: {\n      ...$('Check Label Exists').item.json,\n      finalLabelId: labelId\n    }\n  };\n});"
+      },
+      "name": "Set Final Label ID",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [2000, 300],
+      "id": "set-final-label-id"
+    },
+    {
+      "parameters": {
+        "url": "https://gmail.googleapis.com/gmail/v1/users/me/messages/{{ $json.messageId }}/modify",
+        "method": "POST",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "googleApi",
+        "options": {
+          "bodyContentType": "json",
+          "headers": {
+            "item": [
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          }
+        },
+        "jsonParameters": true,
+        "bodyParametersJson": "{\n  \"addLabelIds\": [\"{{ $json.finalLabelId }}\"]\n}"
+      },
+      "name": "Apply Label",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [2220, 300],
+      "id": "apply-label"
+    },
+    {
+      "parameters": {
+        "sheetId": "YOUR_GOOGLE_SHEET_ID",
+        "range": "ログ!A:H",
+        "options": {
+          "valueInputMode": "USER_ENTERED"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $json.processTime }}",
+            "messageId": "={{ $json.messageId }}",
+            "subject": "={{ $json.subject }}",
+            "classification": "={{ $json.classification }}",
+            "confidence": "={{ Number($json.confidence).toFixed(3) }}",
+            "appliedLabel": "={{ $json.targetLabel }}",
+            "enrichedContext": "={{ $json.enrichedContext }}",
+            "status": "={{ $json.isLowConfidence ? '要確認' : '完了' }}"
+          }
+        }
+      },
+      "name": "Google Sheets Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [2440, 300],
+      "id": "google-sheets-log"
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Email Preprocessing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Preprocessing": {
+      "main": [
+        [
+          {
+            "node": "AI Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Classification": {
+      "main": [
+        [
+          {
+            "node": "Label Mapping",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Label Mapping": {
+      "main": [
+        [
+          {
+            "node": "Get Gmail Labels",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Gmail Labels": {
+      "main": [
+        [
+          {
+            "node": "Check Label Exists",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Label Exists": {
+      "main": [
+        [
+          {
+            "node": "Needs Label Creation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Needs Label Creation": {
+      "main": [
+        [
+          {
+            "node": "Create Label",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set Final Label ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Label": {
+      "main": [
+        [
+          {
+            "node": "Set Final Label ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Final Label ID": {
+      "main": [
+        [
+          {
+            "node": "Apply Label",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Apply Label": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "id": "gmail-label-classifier-workflow-fixed",
+  "meta": {
+    "templateCredsSetupCompleted": true
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "name": "Gmail Classifier File Manager",
+  "description": "A simple file manager for Gmail Classifier project",
+  "version": "1.0.0",
+  "author": "Claude Code Assistant",
+  "homepage": "https://github.com/gmail-classifier/dxt-file-manager",
+  "mcp_config": {
+    "command": "node",
+    "args": ["${__dirname}/server/index.js"],
+    "env": {
+      "WORKSPACE": "${user_config.workspace_directory}",
+      "DEBUG": "${user_config.debug_mode}"
+    }
+  },
+  "user_config": {
+    "workspace_directory": {
+      "type": "directory",
+      "title": "Workspace Directory",
+      "description": "Directory for file operations",
+      "default": "/Users/hasegawayuya/Projects/dev-projects/gmail-classifier"
+    },
+    "debug_mode": {
+      "type": "boolean",
+      "title": "Debug Mode",
+      "description": "Enable debug logging",
+      "default": false
+    }
+  },
+  "compatibility": {
+    "claude_desktop": ">=0.10.0",
+    "platforms": ["darwin", "windows", "linux"]
+  }
+}

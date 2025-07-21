@@ -12,6 +12,7 @@ import re
 from typing import List, Dict
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.svm import LinearSVC
+from .context_enricher import advanced_enricher
 
 classifier_bp = Blueprint('classifier', __name__)
 
@@ -201,12 +202,23 @@ def classify_email():
         except:
             confidence = 0.8  # デフォルト値
         
-        # 結果返却
+        # 高度文脈補完（新機能）
+        context_analysis = advanced_enricher.enrich_context(subject, body)
+        
+        # 結果返却（文脈情報付き）
         result = {
             "classification": prediction,
             "confidence": confidence,
             "text_length": len(text),
-            "model_status": "loaded"
+            "model_status": "loaded",
+            "context_analysis": {
+                "enriched_context": context_analysis['enriched_context'],
+                "priority_level": context_analysis['priority_level'],
+                "paypay_strength": context_analysis['paypay_strength'],
+                "payment_analysis": context_analysis['payment_analysis'],
+                "extracted_amounts": context_analysis['entities']['amounts'],
+                "extracted_dates": context_analysis['entities']['dates']
+            }
         }
         
         return jsonify(result)

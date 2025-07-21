@@ -1,0 +1,14 @@
+{
+  "name": "gmail-classifier-file-manager",
+  "version": "1.0.0",
+  "description": "File manager DXT extension for Gmail Classifier",
+  "main": "index.js",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^0.8.0"
+  },
+  "scripts": {
+    "start": "node index.js"
+  },
+  "author": "Claude Code Assistant",
+  "license": "MIT"
+}

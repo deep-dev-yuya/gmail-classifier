@@ -1,0 +1,6 @@
+timestamp,messageId,subject,classification,confidence,gmailLabel,enrichedContext,status
+2025-07-16T10:30:00Z,18f2a1b2c3d4e5f6,PayPay利用完了のお知らせ,支払い関係,0.832,AI-Payment,"高優先度のメール、PayPay関連、(強度: 2)、請求・料金に関する通知、処理完了済み、金額: 1250円、major_payment: PayPay、store_service: セブンイレブン、アクションが必要",完了
+2025-07-16T10:31:15Z,29e3b2c4d5e6f7a8,緊急システム障害のお知らせ,重要,0.923,AI-Important,"高優先度のメール、緊急対応が必要、システム障害に関する通知、アクションが必要",完了
+2025-07-16T10:32:30Z,3af4c5d6e7f8a9b0,Amazon タイムセール開催中,プロモーション,0.712,AI-Promotion,"低優先度のメール、プロモーション関連、タイムセール情報、store_service: Amazon",完了
+2025-07-16T10:33:45Z,4bg5d7e8f9a0b1c2,GitHub新着求人のお知らせ,仕事・学習,0.654,AI-Work-Study,"中優先度のメール、仕事・学習関連、求人情報、GitHub関連",完了
+2025-07-16T10:34:00Z,5ch6e8f9a0b1c2d3,件名が不明確なメール,重要,0.423,AI-NeedsReview,"中優先度のメール、分類が不明確、要確認が必要",要確認

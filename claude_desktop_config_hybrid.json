@@ -1,0 +1,29 @@
+{
+  "mcp": {
+    "server": {
+      "host": "127.0.0.1",
+      "port": 5003
+    }
+  },
+  "mcpServers": {
+    "MCP_DOCKER": {
+      "command": "docker",
+      "args": [
+        "run",
+        "-l",
+        "mcp.client=claude-desktop",
+        "--rm",
+        "-i",
+        "alpine/socat",
+        "STDIO",
+        "TCP:host.docker.internal:8811"
+      ]
+    }
+  },
+  "extensions": {
+    "enabled": true,
+    "directory": {
+      "enabled": true
+    }
+  }
+}

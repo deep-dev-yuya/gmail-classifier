@@ -1,0 +1,648 @@
+{
+  "name": "Gmail Classification Workflow v2.0",
+  "nodes": [
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "get",
+        "messageId": "={{ $json.messageId }}",
+        "format": "raw",
+        "options": {}
+      },
+      "id": "e1b2c3d4-e5f6-7890-1234-567890abcdef",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        100,
+        300
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail_oauth_credentials",
+          "name": "Gmail OAuth2 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Email preprocessing and text extraction\nfor (const item of $input.all()) {\n  const emailData = item.json;\n  \n  // Extract basic email metadata\n  const messageId = emailData.messageId || emailData.id;\n  const threadId = emailData.threadId;\n  const subject = emailData.subject || '';\n  const body = emailData.body || emailData.snippet || '';\n  \n  // Process timestamp\n  const processedAt = new Date().toISOString();\n  \n  // Basic text cleaning\n  const cleanSubject = subject.replace(/^(Re:|Fwd?:|回答:|転送:)\\s*/i, '').trim();\n  const cleanBody = body.replace(/(<([^>]+)>)/gi, '').replace(/\\s+/g, ' ').trim();\n  \n  // Combine subject and body for analysis\n  const fullText = `${cleanSubject} ${cleanBody}`;\n  \n  item.json = {\n    messageId,\n    threadId,\n    subject: cleanSubject,\n    body: cleanBody,\n    fullText,\n    processedAt,\n    originalData: emailData\n  };\n}\n\nreturn $input.all();"
+      },
+      "id": "f2a3b4c5-d6e7-8901-2345-678901bcdefg",
+      "name": "Email Preprocessing",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "enrich-context",
+        "options": {}
+      },
+      "id": "g3b4c5d6-e7f8-9012-3456-789012cdefgh",
+      "name": "Context Enricher",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        500,
+        300
+      ],
+      "webhookId": "context-enricher-webhook"
+    },
+    {
+      "parameters": {
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "h4c5d6e7-f8g9-0123-4567-890123defghi",
+      "name": "Merge1",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        700,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "return [\n  {\n    json: {\n      subject: $json.subject || $json.snippet || '(件名なし)',\n      body: $json.body || $json.enrichedContext || '(本文なし)',\n      // 必要であれば追加データもそのまま渡す：\n      ...$json\n    }\n  }\n];"
+      },
+      "id": "i5d6e7f8-g9h0-1234-5678-901234efghij",
+      "name": "Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        900,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.1.9:5002/api/classify",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": true,
+        "bodyContentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "{\n  \"subject\": \"{{ $json.subject }}\",\n  \"body\": \"{{ $json.body }}\"\n}",
+        "options": {}
+      },
+      "id": "j6e7f8g9-h0i1-2345-6789-012345fghijk",
+      "name": "AI Classification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        1100,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "promotion_condition",
+              "leftValue": "={{ $('AI Classification').item.json.classification }}",
+              "rightValue": "プロモーション",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "workstudy_condition",
+              "leftValue": "={{ $('AI Classification').item.json.classification }}",
+              "rightValue": "仕事・学習",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "important_condition",
+              "leftValue": "={{ $('AI Classification').item.json.classification }}",
+              "rightValue": "重要",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "notification_condition", 
+              "leftValue": "={{ $('AI Classification').item.json.classification }}",
+              "rightValue": "通知",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "payment_condition",
+              "leftValue": "={{ $('AI Classification').item.json.classification }}",
+              "rightValue": "支払い関係",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "id": "lowconfidence_condition",
+              "leftValue": "={{ $('AI Classification').item.json.confidence }}",
+              "rightValue": 0.6,
+              "operator": {
+                "type": "number",
+                "operation": "lt"
+              }
+            }
+          ],
+          "combinator": "or"
+        },
+        "fallbackOutput": "extra"
+      },
+      "id": "k7f8g9h0-i1j2-3456-7890-123456ghijkl",
+      "name": "Switch",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3,
+      "position": [
+        1300,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "addLabels",
+        "messageId": "={{ $('AI Classification').item.json.messageId || $json.messageId }}",
+        "labelIds": ["AI-Promotion"]
+      },
+      "id": "l8g9h0i1-j2k3-4567-8901-234567hijklm",
+      "name": "AI-Promotion",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        100
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail_oauth_credentials",
+          "name": "Gmail OAuth2 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "addLabels", 
+        "messageId": "={{ $('AI Classification').item.json.messageId || $json.messageId }}",
+        "labelIds": ["AI-WorkStudy"]
+      },
+      "id": "m9h0i1j2-k3l4-5678-9012-345678ijklmn",
+      "name": "AI-WorkStudy",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        180
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail_oauth_credentials",
+          "name": "Gmail OAuth2 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "addLabels",
+        "messageId": "={{ $('AI Classification').item.json.messageId || $json.messageId }}",
+        "labelIds": ["AI-Important"]
+      },
+      "id": "n0i1j2k3-l4m5-6789-0123-456789jklmno",
+      "name": "AI-Important",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        260
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail_oauth_credentials",
+          "name": "Gmail OAuth2 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "addLabels",
+        "messageId": "={{ $('AI Classification').item.json.messageId || $json.messageId }}",
+        "labelIds": ["AI-Notification"]
+      },
+      "id": "o1j2k3l4-m5n6-7890-1234-567890klmnop",
+      "name": "AI-Notification",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        340
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail_oauth_credentials",
+          "name": "Gmail OAuth2 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "addLabels",
+        "messageId": "={{ $('AI Classification').item.json.messageId || $json.messageId }}",
+        "labelIds": ["AI-Payment"]
+      },
+      "id": "p2k3l4m5-n6o7-8901-2345-678901lmnopq",
+      "name": "AI-Payment",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        420
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail_oauth_credentials",
+          "name": "Gmail OAuth2 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "addLabels",
+        "messageId": "={{ $('AI Classification').item.json.messageId || $json.messageId }}",
+        "labelIds": ["AI-NeedsReview"]
+      },
+      "id": "q3l4m5n6-o7p8-9012-3456-789012mnopqr",
+      "name": "AI-NeedsReview1",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        500
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail_oauth_credentials",
+          "name": "Gmail OAuth2 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "addLabels",
+        "messageId": "={{ $('AI Classification').item.json.messageId || $json.messageId }}",
+        "labelIds": ["AI-NeedsReview"]
+      },
+      "id": "r4m5n6o7-p8q9-0123-4567-890123nopqrs",
+      "name": "AI-NeedsReview",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        580
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail_oauth_credentials",
+          "name": "Gmail OAuth2 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "id": "s5n6o7p8-q9r0-1234-5678-901234opqrst",
+      "name": "Merge",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 2,
+      "position": [
+        1700,
+        340
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1234567890abcdefghijklmnopqrstuvwxyz",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $('AI Classification').item.json.processedAt || new Date().toISOString() }}",
+            "messageId": "={{ $('AI Classification').item.json.messageId || $json.messageId }}",
+            "threadId": "={{ $('AI Classification').item.json.threadId || $json.threadId }}",
+            "subject": "={{ $('AI Classification').item.json.subject || $json.subject }}",
+            "classification": "={{ $('AI Classification').item.json.classification }}",
+            "confidence": "={{ $('AI Classification').item.json.confidence }}",
+            "context_analysis": "={{ $('AI Classification').item.json.context_analysis ? JSON.stringify($('AI Classification').item.json.context_analysis) : '' }}",
+            "enriched_context": "={{ $('AI Classification').item.json.enriched_context }}",
+            "payment_analysis": "={{ $('AI Classification').item.json.payment_analysis ? JSON.stringify($('AI Classification').item.json.payment_analysis) : '' }}",
+            "priority_level": "={{ $('AI Classification').item.json.priority_level }}",
+            "model_status": "={{ $('AI Classification').item.json.model_status }}",
+            "text_length": "={{ $('AI Classification').item.json.text_length }}"
+          }
+        },
+        "options": {}
+      },
+      "id": "t6o7p8q9-r0s1-2345-6789-012345pqrstu",
+      "name": "Google Sheets Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [
+        1900,
+        340
+      ],
+      "credentials": {
+        "googleSheetsOAuth2": {
+          "id": "google_sheets_oauth_credentials",
+          "name": "Google Sheets OAuth2 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Get many labels functionality\n// This code processes multiple Gmail labels\nconst labels = [];\n\nfor (const item of $input.all()) {\n  const emailData = item.json;\n  \n  // Extract existing labels\n  if (emailData.labelIds && Array.isArray(emailData.labelIds)) {\n    labels.push(...emailData.labelIds);\n  }\n  \n  // Add AI classification as label if present\n  if (emailData.classification) {\n    labels.push(`AI-${emailData.classification}`);\n  }\n}\n\n// Remove duplicates and return unique labels\nconst uniqueLabels = [...new Set(labels)];\n\nreturn [{\n  json: {\n    labels: uniqueLabels,\n    labelCount: uniqueLabels.length,\n    processedAt: new Date().toISOString()\n  }\n}];"
+      },
+      "id": "u7p8q9r0-s1t2-3456-7890-123456qrstuv",
+      "name": "Code1",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        500
+      ]
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Email Preprocessing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Preprocessing": {
+      "main": [
+        [
+          {
+            "node": "Context Enricher",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context Enricher": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "AI Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Classification": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "AI-Promotion",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI-WorkStudy",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI-Important",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI-Notification",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI-Payment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI-NeedsReview1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "AI-NeedsReview",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI-Promotion": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI-WorkStudy": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI-Important": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI-Notification": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI-Payment": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI-NeedsReview1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI-NeedsReview": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [
+    {
+      "createdAt": "2025-07-19T09:14:08.000Z",
+      "updatedAt": "2025-07-19T09:14:08.000Z",
+      "id": "gmail-classifier-tag",
+      "name": "Gmail Classification"
+    }
+  ],
+  "triggerCount": 1,
+  "updatedAt": "2025-07-19T09:14:08.000Z",
+  "versionId": "v2.0.0"
+}
