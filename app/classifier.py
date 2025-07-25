@@ -130,18 +130,37 @@ def create_paypay_specialized_features(text: str) -> str:
     return ' '.join(features)
 
 def load_pipeline():
-    """Pipeline化されたモデルの読み込み"""
+    """Pipeline化されたモデルの読み込み（優先順位付き）"""
     global _pipeline
     
     if _pipeline is None:
-        # Pipeline化されたモデルを優先的に読み込み
+        # 教師あり学習モデルを最優先で読み込み
+        supervised_model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'supervised_model_v1.pkl')
+        realworld_model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'realworld_improved_v1.pkl')
+        balanced_model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'balanced_model_v1.pkl')
         pipeline_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'paypay_specialized_v1.pkl')
         old_model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'model.pkl')
         
-        if os.path.exists(pipeline_path):
-            # Pipeline化されたモデルを読み込み
+        if os.path.exists(supervised_model_path):
+            # 教師あり学習モデルを読み込み（最優先）
+            loaded_data = joblib.load(supervised_model_path)
+            _pipeline = loaded_data['pipeline']
+            print(f"Loaded supervised model with accuracy: {loaded_data.get('accuracy', 'N/A')}")
+        elif os.path.exists(realworld_model_path):
+            # 実運用改良モデルを読み込み（2番目）
+            loaded_data = joblib.load(realworld_model_path)
+            _pipeline = loaded_data['pipeline']
+            print(f"Loaded realworld improved model with accuracy: {loaded_data.get('accuracy', 'N/A')}")
+        elif os.path.exists(balanced_model_path):
+            # バランス調整モデルを読み込み（3番目）
+            loaded_data = joblib.load(balanced_model_path)
+            _pipeline = loaded_data['pipeline']
+            print(f"Loaded balanced model with accuracy: {loaded_data.get('accuracy', 'N/A')}")
+        elif os.path.exists(pipeline_path):
+            # Pipeline化されたモデルを読み込み（4番目）
             loaded_data = joblib.load(pipeline_path)
             _pipeline = loaded_data['pipeline']
+            print("Loaded PayPay specialized model")
         elif os.path.exists(old_model_path):
             # 旧形式のモデルを読み込み（fallback）
             with open(old_model_path, 'rb') as f:
@@ -149,8 +168,9 @@ def load_pipeline():
             # 旧形式をPipelineに変換
             from sklearn.pipeline import make_pipeline
             _pipeline = make_pipeline(vectorizer, model)
+            print("Loaded legacy model")
         else:
-            # デモ用の簡易分類器
+            # デモ用の簡易分類器（最終フォールバック）
             vectorizer = TfidfVectorizer(max_features=1000)
             model = LinearSVC()
             
@@ -167,6 +187,7 @@ def load_pipeline():
             
             from sklearn.pipeline import make_pipeline
             _pipeline = make_pipeline(vectorizer, model)
+            print("Loaded fallback dummy model")
     
     return _pipeline
 
@@ -188,9 +209,28 @@ def classify_email():
         # Pipeline読み込み
         pipeline = load_pipeline()
         
-        # テキスト結合とPayPay特化特徴量エンジニアリング
+        # テキスト結合と特徴量エンジニアリング
         text = f"{subject} {body}"
-        enhanced_text = create_paypay_specialized_features(text)
+        
+        # モデルタイプに応じて特徴量エンジニアリングを選択
+        supervised_model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'supervised_model_v1.pkl')
+        realworld_model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'realworld_improved_v1.pkl')
+        balanced_model_path = os.path.join(os.path.dirname(__file__), '..', 'models', 'balanced_model_v1.pkl')
+        
+        if os.path.exists(supervised_model_path) and _pipeline is not None:
+            # 教師あり学習モデル用の特徴量エンジニアリング
+            from models.analyze_groundtruth_data import create_supervised_features
+            enhanced_text = create_supervised_features(text)
+        elif os.path.exists(realworld_model_path) and _pipeline is not None:
+            # 実運用改良モデル用の特徴量エンジニアリング
+            from models.train_realworld_model import create_improved_features
+            enhanced_text = create_improved_features(text)
+        elif os.path.exists(balanced_model_path) and _pipeline is not None:
+            # バランス調整モデルの場合は、内蔵の特徴量エンジニアリングを使用
+            enhanced_text = text  # Pipeline内で処理される
+        else:
+            # 従来のPayPay特化特徴量エンジニアリング
+            enhanced_text = create_paypay_specialized_features(text)
         
         # 予測実行（Pipeline）
         prediction = pipeline.predict([enhanced_text])[0]
@@ -207,6 +247,7 @@ def classify_email():
         
         # 結果返却（文脈情報付き）
         result = {
+            "messageId": data.get("messageId", ""),
             "classification": prediction,
             "confidence": confidence,
             "text_length": len(text),

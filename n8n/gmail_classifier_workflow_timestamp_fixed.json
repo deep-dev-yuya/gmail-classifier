@@ -1,0 +1,328 @@
+{
+  "name": "Gmail Classification Workflow - Timestamp Fixed",
+  "nodes": [
+    {
+      "parameters": {
+        "resource": "message",
+        "event": "messageReceived",
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyHour",
+              "minute": 5
+            }
+          ]
+        },
+        "filters": {
+          "labelNames": ["INBOX"],
+          "search": "newer_than:1h"
+        },
+        "simplify": true,
+        "options": {}
+      },
+      "id": "gmail-trigger-001",
+      "name": "Gmail Trigger",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        80,
+        400
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail_oauth_credentials",
+          "name": "Gmail OAuth2 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "// Email preprocessing with proper timestamp handling\nconst items = $input.all();\nconst processedItems = [];\n\nfor (const item of items) {\n  const data = item.json;\n  \n  // Extract subject and body\n  let subject = data.subject || '';\n  let body = data.snippet || '';\n  \n  // Clean up subject and body\n  subject = subject.replace(/^(Re:|Fwd?:)\\s*/i, '').trim();\n  body = body.replace(/[\\r\\n]+/g, ' ').trim();\n  \n  // Handle timestamp - use Gmail's internalDate if available\n  const processedAt = new Date().toISOString();\n  let receivedAt = processedAt;\n  let japanTime = '';\n  \n  // Gmail API provides internalDate in milliseconds\n  if (data.internalDate) {\n    try {\n      const receivedDate = new Date(parseInt(data.internalDate));\n      receivedAt = receivedDate.toISOString();\n      \n      // Convert to Japan time for display\n      japanTime = receivedDate.toLocaleString('ja-JP', {\n        timeZone: 'Asia/Tokyo',\n        year: 'numeric',\n        month: '2-digit',\n        day: '2-digit',\n        hour: '2-digit',\n        minute: '2-digit',\n        second: '2-digit',\n        hour12: false\n      });\n    } catch (error) {\n      console.log('Error parsing internalDate:', error);\n      // Fallback to current time\n      receivedAt = processedAt;\n      japanTime = new Date().toLocaleString('ja-JP', {\n        timeZone: 'Asia/Tokyo',\n        year: 'numeric',\n        month: '2-digit', \n        day: '2-digit',\n        hour: '2-digit',\n        minute: '2-digit',\n        second: '2-digit',\n        hour12: false\n      });\n    }\n  } else {\n    // If no internalDate, use current time and convert to Japan time\n    japanTime = new Date().toLocaleString('ja-JP', {\n      timeZone: 'Asia/Tokyo',\n      year: 'numeric',\n      month: '2-digit',\n      day: '2-digit', \n      hour: '2-digit',\n      minute: '2-digit',\n      second: '2-digit',\n      hour12: false\n    });\n  }\n  \n  // Final checks\n  if (!subject) subject = 'タイトルなし';\n  if (!body) body = '本文なし';\n  \n  processedItems.push({\n    json: {\n      messageId: data.id,\n      threadId: data.threadId,\n      subject: subject,\n      body: body,\n      processedAt: processedAt,       // When processed (UTC)\n      receivedAt: receivedAt,         // When email was received (UTC)\n      japanTime: japanTime,          // Display time in Japan timezone\n      originalData: data\n    }\n  });\n}\n\nreturn processedItems;"
+      },
+      "id": "email-preprocessing-001",
+      "name": "Email Preprocessing with Timestamps",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        280,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://192.168.1.9:5002/api/enrich-context",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": true,
+        "bodyContentType": "json",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messageId",
+              "value": "={{ $json.messageId }}"
+            },
+            {
+              "name": "subject", 
+              "value": "={{ $json.subject }}"
+            },
+            {
+              "name": "body",
+              "value": "={{ $json.body }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "context-enricher-001",
+      "name": "Context Enricher",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        480,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST", 
+        "url": "http://192.168.1.9:5002/api/classify",
+        "authentication": "none",
+        "sendQuery": false,
+        "sendHeaders": false,
+        "sendBody": true,
+        "bodyContentType": "json",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messageId",
+              "value": "={{ $('Email Preprocessing with Timestamps').item.json.messageId }}"
+            },
+            {
+              "name": "subject",
+              "value": "={{ $('Email Preprocessing with Timestamps').item.json.subject }}"
+            },
+            {
+              "name": "body", 
+              "value": "={{ $('Email Preprocessing with Timestamps').item.json.body }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ai-classification-001", 
+      "name": "AI Classification",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [
+        680,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "resource": "message",
+        "operation": "addLabels",
+        "messageId": "={{ $('Email Preprocessing with Timestamps').item.json.messageId }}",
+        "labelIds": "={{ $json.classification === '支払い関係' ? ['AI-Payment'] : $json.classification === '重要' ? ['AI-Important'] : $json.classification === 'プロモーション' ? ['AI-Promotion'] : $json.classification === '仕事・学習' ? ['AI-Work-Study'] : ['AI-NeedsReview'] }}"
+      },
+      "id": "gmail-label-001",
+      "name": "Gmail Label Application", 
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2,
+      "position": [
+        880,
+        400
+      ],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "gmail_oauth_credentials",
+          "name": "Gmail OAuth2 account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "resource": "append",
+        "sheetId": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms",
+        "range": "gmail_log_sheet!A:H",
+        "options": {},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $('Email Preprocessing with Timestamps').item.json.japanTime }}",
+            "messageId": "={{ $('Email Preprocessing with Timestamps').item.json.messageId }}",
+            "subject": "={{ $('Email Preprocessing with Timestamps').item.json.subject }}",
+            "classification": "={{ $('AI Classification').item.json.classification }}",
+            "confidence": "={{ $('AI Classification').item.json.confidence }}",
+            "gmailLabel": "={{ $json.classification === '支払い関係' ? 'AI-Payment' : $json.classification === '重要' ? 'AI-Important' : $json.classification === 'プロモーション' ? 'AI-Promotion' : $json.classification === '仕事・学習' ? 'AI-Work-Study' : 'AI-NeedsReview' }}",
+            "enrichedContext": "={{ $('Context Enricher').item.json.enriched_context || '' }}",
+            "status": "={{ $('AI Classification').item.json.confidence >= 0.5 ? '完了' : '要確認' }}"
+          }
+        }
+      },
+      "id": "gsheet-log-001",
+      "name": "Google Sheets Log",
+      "type": "n8n-nodes-base.googleSheets", 
+      "typeVersion": 4,
+      "position": [
+        1080,
+        400
+      ],
+      "credentials": {
+        "googleSheetsOAuth2": {
+          "id": "gsheets_oauth_credentials",
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $('AI Classification').item.json.confidence }}",
+              "operation": "smaller",
+              "value2": 0.5
+            }
+          ]
+        }
+      },
+      "id": "confidence-check-001",
+      "name": "Low Confidence Check",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1280,
+        400
+      ]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "resource": "append", 
+        "sheetId": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms",
+        "range": "retraining_candidates_sheet!A:F",
+        "options": {},
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "timestamp": "={{ $('Email Preprocessing with Timestamps').item.json.japanTime }}",
+            "messageId": "={{ $('Email Preprocessing with Timestamps').item.json.messageId }}",
+            "subject": "={{ $('Email Preprocessing with Timestamps').item.json.subject }}",
+            "predictedClass": "={{ $('AI Classification').item.json.classification }}",
+            "confidence": "={{ $('AI Classification').item.json.confidence }}",
+            "reason": "信頼度不足"
+          }
+        }
+      },
+      "id": "retraining-log-001",
+      "name": "Retraining Candidates Log",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4, 
+      "position": [
+        1480,
+        300
+      ],
+      "credentials": {
+        "googleSheetsOAuth2": {
+          "id": "gsheets_oauth_credentials", 
+          "name": "Google Sheets OAuth2"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Gmail Trigger": {
+      "main": [
+        [
+          {
+            "node": "Email Preprocessing with Timestamps",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Email Preprocessing with Timestamps": {
+      "main": [
+        [
+          {
+            "node": "Context Enricher",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI Classification", 
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Context Enricher": {
+      "main": [
+        [
+          {
+            "node": "AI Classification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Classification": {
+      "main": [
+        [
+          {
+            "node": "Gmail Label Application",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail Label Application": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets Log",
+            "type": "main", 
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets Log": {
+      "main": [
+        [
+          {
+            "node": "Low Confidence Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Low Confidence Check": {
+      "main": [
+        [
+          {
+            "node": "Retraining Candidates Log",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    }
+  },
+  "active": true,
+  "settings": {},
+  "createdAt": "2025-07-22T00:00:00.000Z",
+  "updatedAt": "2025-07-22T00:00:00.000Z",
+  "id": "gmail-classifier-timestamp-fixed"
+}
